@@ -33,20 +33,20 @@ IBM_INSTANCE = None
 IBM_BACKEND_NAME = "ibmq_qasm_simulator" 
 
 mode = "hybrid"
-num_qubits = 4 # Reduced slightly to ensure compatibility with smaller hardware layouts if needed
+num_qubits = 4
 output_dim = 1
 input_dim = 3
-hidden_dim = 50
+hidden_dim = 32
 num_quantum_layers = 1
 cutoff_dim = 20
 classic_network = [input_dim, hidden_dim, output_dim]
 
 args = {
-    "batch_size": 64,
-    "epochs": 20000, # WARNING: Reduce this significantly if USE_IBM_HARDWARE is True
+    "batch_size": 32,
+    "epochs": 50,
     "lr": 0.005,
     "seed": 1,
-    "print_every": 100,
+    "print_every": 10,
     "log_path": "./checkpoints/diffusion",
     "input_dim": input_dim,
     "output_dim": output_dim,
@@ -57,7 +57,7 @@ args = {
     "q_ansatz": "cascade",  
     "mode": mode,
     "activation": "tanh",  
-    "shots": 1024, # Specific shots for hardware execution
+    "shots": 256,
     "problem": "diffusion",
     "solver": "DV", # Must be DV (Discrete Variable) for Qiskit/IBM Hardware
     "device": DEVICE,
@@ -123,7 +123,7 @@ plt.close("all")
 model.logger.print(f"The last loss is: , {model.loss_history[-1]}")
 
 # --- EVALUATION ---
-NUM_OF_POINTS = 20
+NUM_OF_POINTS = 10
 dom_coords = torch.tensor(
     [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], dtype=torch.float32, device=DEVICE
 )

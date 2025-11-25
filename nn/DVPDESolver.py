@@ -5,6 +5,7 @@ import os
 import matplotlib.pyplot as plt
 from utils.logger import Logging
 from nn.DVQuantumLayer import DVQuantumLayer
+
 class DVPDESolver(nn.Module):
     def __init__(self, args, logger: Logging, data=None, device=None):
         super().__init__()
@@ -23,6 +24,7 @@ class DVPDESolver(nn.Module):
         self.classic_network = self.args["classic_network"]  
         self.total_training_time = 0
         self.total_memory_peak = 0
+
         if self.encoding == "amplitude":
             self.preprocessor = nn.Sequential(
                 nn.Linear(self.classic_network[0], self.classic_network[-2]).to(
@@ -39,6 +41,7 @@ class DVPDESolver(nn.Module):
                 nn.Tanh(),
                 nn.Linear(self.classic_network[-2], self.num_qubits).to(self.device),
             ).to(self.device)
+
         self.postprocessor = nn.Sequential(
             nn.Linear(self.num_qubits, self.classic_network[-2]).to(self.device),
             nn.Tanh(),
@@ -46,9 +49,13 @@ class DVPDESolver(nn.Module):
                 self.device
             ),
         ).to(self.device)
+
         self.activation = nn.Tanh()
         self.num_qubits = args["num_qubits"]
+        
+        # Initialize the hardware-aware quantum layer
         self.quantum_layer = DVQuantumLayer(self.args)
+
         self.optimizer = torch.optim.Adam(
             filter(lambda p: p.requires_grad, self.parameters()), lr=self.args["lr"]
         )
@@ -58,6 +65,7 @@ class DVPDESolver(nn.Module):
         self.loss_fn = torch.nn.MSELoss()
         self._initialize_logging()
         self._initialize_weights()
+
     def _initialize_weights(self):
         for layer in self.preprocessor:
             if isinstance(layer, nn.Linear):
@@ -66,25 +74,45 @@ class DVPDESolver(nn.Module):
                 )  
                 if layer.bias is not None:
                     nn.init.zeros_(layer.bias)  
+
     def _initialize_logging(self):
         self.log_path = self.logger.get_output_dir()
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         try:
             if x.dim() != 2:
                 raise ValueError(f"Expected 2D input tensor, got shape {x.shape}")
+            
             preprocessed = self.preprocessor(x)
+            
             if self.draw_quantum_circuit_flag:
                 self.draw_quantum_circuit(preprocessed)
                 self.draw_quantum_circuit_flag = False
-            quantum_out = self.quantum_layer(preprocessed).to(
-                dtype=torch.float32, device=self.device
-            )
-            quantum_features = quantum_out.view( self.num_qubits , -1).T
+            
+            # Execute Quantum Layer
+            quantum_out = self.quantum_layer(preprocessed)
+            
+            # Ensure output is float32 and on correct device (handling Qiskit return types)
+            quantum_out = quantum_out.to(dtype=torch.float32, device=self.device)
+
+            # Reshape logic
+            # If batch size is > 1, quantum_out shape is usually (num_qubits, batch) or (batch, num_qubits)
+            # PennyLane default.qubit returns (num_qubits, batch), but sometimes varies based on QNode interface
+            if quantum_out.shape[0] == self.num_qubits and quantum_out.dim() == 2:
+                 quantum_features = quantum_out.T 
+            else:
+                 quantum_features = quantum_out
+
+            # Double check view consistency
+            quantum_features = quantum_features.view(-1, self.num_qubits)
+
             classical_out = self.postprocessor(quantum_features)
             return classical_out
+            
         except Exception as e:
             self.logger.print(f"Forward pass failed: {str(e)}")
             raise
+
     def save_state(self , path=None):
         state = {
             "args": self.args,
@@ -105,6 +133,7 @@ class DVPDESolver(nn.Module):
         with open(model_path, "wb") as f:
             torch.save(state, f)
         self.logger.print(f"Model state saved to {model_path}")
+
     @classmethod
     def load_state(cls, file_path, map_location=None):
         if map_location is None:
@@ -116,7 +145,11 @@ class DVPDESolver(nn.Module):
         if self.draw_quantum_circuit_flag:
             try:
                 self.logger.print("The circuit used in the study:")
+                # We check if params exist to ensure the circuit is initialized
                 if self.quantum_layer.params is not None:
+                    # Pass the first sample to draw the circuit structure
+                    # Note: When using IBM backends, this draws the PennyLane abstraction,
+                    # not the transpiled Qiskit circuit.
                     fig, ax = qml.draw_mpl(self.quantum_layer.circuit)(x[0])
                     plt.savefig(os.path.join(self.log_path, "circuit.pdf"))
                     plt.close()

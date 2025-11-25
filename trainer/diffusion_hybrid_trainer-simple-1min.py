@@ -1,6 +1,7 @@
 import torch
 import os
 import sys
+import time
 import matplotlib.pyplot as plt 
 import numpy as np
 
@@ -21,7 +22,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # IBM QUANTUM SETTINGS
 # Set USE_IBM_HARDWARE to True to use Qiskit Runtime + Real Hardware
-USE_IBM_HARDWARE = True 
+USE_IBM_HARDWARE = False 
 # Replace with your actual API Token
 
 IBM_TOKEN = "rTMZyypbjUUZ9Q_jjydgC-HAkVb2OJd42YAmIRtrDAvl"
@@ -33,20 +34,20 @@ IBM_INSTANCE = None
 IBM_BACKEND_NAME = "ibmq_qasm_simulator" 
 
 mode = "hybrid"
-num_qubits = 4 # Reduced slightly to ensure compatibility with smaller hardware layouts if needed
+num_qubits = 2
 output_dim = 1
 input_dim = 3
-hidden_dim = 50
+hidden_dim = 16
 num_quantum_layers = 1
 cutoff_dim = 20
 classic_network = [input_dim, hidden_dim, output_dim]
 
 args = {
-    "batch_size": 64,
-    "epochs": 20000, # WARNING: Reduce this significantly if USE_IBM_HARDWARE is True
+    "batch_size": 4,
+    "epochs": 5,
     "lr": 0.005,
     "seed": 1,
-    "print_every": 100,
+    "print_every": 1,
     "log_path": "./checkpoints/diffusion",
     "input_dim": input_dim,
     "output_dim": output_dim,
@@ -57,7 +58,7 @@ args = {
     "q_ansatz": "cascade",  
     "mode": mode,
     "activation": "tanh",  
-    "shots": 1024, # Specific shots for hardware execution
+    "shots": 64,
     "problem": "diffusion",
     "solver": "DV", # Must be DV (Discrete Variable) for Qiskit/IBM Hardware
     "device": DEVICE,
@@ -92,6 +93,9 @@ else:
     model.logger.print("Using DV Solver")
     if USE_IBM_HARDWARE:
         model.logger.print(f"--> CONNECTED TO IBM QUANTUM BACKEND: {IBM_BACKEND_NAME}")
+        model.logger.print("WARNING: Real hardware processes samples sequentially - this is SLOW!")
+        model.logger.print(f"With batch_size={args['batch_size']} and {args['epochs']} epochs, expect ~{args['batch_size'] * args['epochs'] * 2} quantum circuit executions")
+        model.logger.print("For faster testing, consider setting USE_IBM_HARDWARE=False to use local simulator")
 
 model.logger.print(f"The settings used:")
 for key, value in args.items():
@@ -105,9 +109,16 @@ total_params = sum(p.numel() for p in model.parameters())
 model.logger.print(f"Total number of parameters: {total_params}")
 
 # --- TRAINING ---
-diffusion_train.train(model)
+training_start = time.time()
+model.logger.print("=" * 60)
+model.logger.print("STARTING TRAINING")
+model.logger.print("=" * 60)
+diffusion_train.train(model, batch_size=model.args["batch_size"])
 model.save_state()
-model.logger.print("Training completed successfuly!")
+training_end = time.time()
+model.logger.print("=" * 60)
+model.logger.print(f"Training completed successfully in {training_end - training_start:.2f} seconds ({((training_end - training_start)/60):.2f} minutes)")
+model.logger.print("=" * 60)
 
 # --- PLOTTING LOSS ---
 plt.plot(range(len(model.loss_history)), model.loss_history)
@@ -123,7 +134,9 @@ plt.close("all")
 model.logger.print(f"The last loss is: , {model.loss_history[-1]}")
 
 # --- EVALUATION ---
-NUM_OF_POINTS = 20
+model.logger.print("Starting evaluation phase...")
+eval_start = time.time()
+NUM_OF_POINTS = 5
 dom_coords = torch.tensor(
     [[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]], dtype=torch.float32, device=DEVICE
 )
@@ -180,8 +193,10 @@ error_f = (
     np.linalg.norm(f_analytic - f_pred, 2) / np.linalg.norm(f_analytic + 1e-9, 2)
 ) * 100.0
 
+eval_end = time.time()
 logger.print("Relative L2 error_u: {:.2e}".format(error_u))
 logger.print("Relative L2 error_f: {:.2e}".format(error_f))
+logger.print(f"Evaluation completed in {eval_end - eval_start:.2f} seconds")
 
 # --- CONTOUR PLOTTING ---
 tstep = NUM_OF_POINTS
@@ -239,7 +254,7 @@ plotter.draw_contourf_regular_2D(
     visualization_data,
     titles=titles,
     nrows_ncols=nrows_ncols,
-    time_steps=[10],
+    time_steps=[2],
     xref=1,
     yref=1,
     model_dirname=model_dirname,

@@ -3,16 +3,25 @@ import torch
 import numpy as np
 import torch.nn as nn
 from scipy.stats import unitary_group
+from scipy.linalg import polar
+from qiskit_ibm_runtime import QiskitRuntimeService
 
 class DVQuantumLayer(nn.Module):
-    def __init__(self, args, diff_method="backprop"):
+    def __init__(self, args, diff_method="parameter-shift"):
         super().__init__()
         self.num_qubits = args["num_qubits"]
         self.num_quantum_layers = args["num_quantum_layers"]
-        self.shots = args["shots"]
+        self.shots = args.get("shots", 1024) # Hardware requires shots
         self.q_ansatz = args["q_ansatz"]
         self.problem = args["problem"]
         self.encoding = args.get("encoding", "angle")
+        
+        # IBM Quantum Specific Arguments
+        self.use_ibm_hardware = args.get("use_ibm_hardware", False)
+        self.ibm_token = args.get("ibm_token", None)
+        self.ibm_backend = args.get("ibm_backend", "ibmq_qasm_simulator")
+        self.ibm_instance = args.get("ibm_instance", None)
+
         if self.q_ansatz == "layered":
             self.params = nn.Parameter(
                 torch.empty(
@@ -69,39 +78,100 @@ class DVQuantumLayer(nn.Module):
             )
         else:
             self.params = None
+
         if not hasattr(self, "params") or self.params is None:
             raise ValueError(
                 "Parameters are not initialized. Check the q_ansatz value."
             )
         self._initialize_weights()
 
-        # Add two 2-qubit Haar random unitaries
         if self.num_qubits >= 4:
-            # Seed for reproducibility
             seed = args.get("seed", None)
-            random_state1 = np.random.RandomState(seed)
-            random_state2 = np.random.RandomState(seed + 1 if seed is not None else None)
-
-            # Generate unitaries using scipy
-            unitary1 = unitary_group.rvs(4, random_state=random_state1)
-            unitary2 = unitary_group.rvs(4, random_state=random_state2)
-            
-            # Register as non-trainable buffers
-            self.register_buffer('haar_unitary1', torch.tensor(unitary1, dtype=torch.cfloat))
-            self.register_buffer('haar_unitary2', torch.tensor(unitary2, dtype=torch.cfloat))
+            self.haar_seed1 = seed
+            self.haar_seed2 = seed + 1 if seed is not None else None
         else:
-            self.haar_unitary1 = None
-            self.haar_unitary2 = None
-            print("Warning: Not enough qubits (<4) for two 2-qubit Haar unitaries. Skipping.")
+            self.haar_seed1 = None
+            self.haar_seed2 = None
 
-        self.dev = qml.device("default.qubit", wires=self.num_qubits, shots=None)
+        # DEVICE INITIALIZATION
+        if self.use_ibm_hardware:
+            print(f"Initializing IBM Quantum Backend: {self.ibm_backend}")
+            is_local_simulator = False
+            backend = None
+            try:
+                if self.ibm_instance:
+                    service = QiskitRuntimeService(instance=self.ibm_instance, token=self.ibm_token)
+                else:
+                    service = QiskitRuntimeService(channel="ibm_quantum_platform", token=self.ibm_token)
+                try:
+                    backend = service.backend(self.ibm_backend)
+                    print(f"Using IBM Quantum backend: {backend.name}")
+                except Exception as backend_error:
+                    print(f"Warning: Backend '{self.ibm_backend}' not found: {backend_error}")
+                    available_backends = [b.name for b in service.backends()]
+                    print(f"Available backends: {available_backends[:10]}")
+                    if available_backends:
+                        print(f"Attempting to use first available backend: {available_backends[0]}")
+                        try:
+                            backend = service.backend(available_backends[0])
+                            print(f"Using IBM Quantum backend: {backend.name}")
+                        except Exception:
+                            print("Falling back to local default.qubit simulator")
+                            is_local_simulator = True
+                    else:
+                        print("Falling back to local default.qubit simulator")
+                        is_local_simulator = True
+            except Exception as e:
+                print(f"Warning: Could not connect to IBM Quantum service: {e}")
+                print("Falling back to local default.qubit simulator")
+                is_local_simulator = True
+            
+            if is_local_simulator:
+                self.dev = qml.device("default.qubit", wires=self.num_qubits, shots=self.shots)
+                local_diff_method = "finite-diff"
+                self.use_batch_processing = False
+            else:
+                self.dev = qml.device(
+                    "qiskit.remote", 
+                    wires=self.num_qubits, 
+                    shots=self.shots,
+                    backend=backend
+                )
+                local_diff_method = "parameter-shift"
+                self.use_batch_processing = False
+        else:
+            self.dev = qml.device("default.qubit", wires=self.num_qubits, shots=None)
+            local_diff_method = "backprop"
+            self.use_batch_processing = True
+
         self.circuit = qml.QNode(
-            self._quantum_circuit, self.dev, interface="torch", diff_method=diff_method
+            self._quantum_circuit, self.dev, interface="torch", diff_method=local_diff_method
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        result = self.circuit(x)   
-        return torch.stack(result) if isinstance(result, list) else result
+        if self.use_batch_processing:
+            result = self.circuit(x)
+            return torch.stack(result) if isinstance(result, list) else result
+        else:
+            batch_size = x.shape[0]
+            outputs = []
+            for idx, sample in enumerate(x):
+                if idx % max(1, batch_size // 4) == 0 or idx == batch_size - 1:
+                    print(f"Processing sample {idx+1}/{batch_size}...", end='\r', flush=True)
+                result = self.circuit(sample)
+                if isinstance(result, list):
+                    if all(isinstance(r, torch.Tensor) for r in result):
+                        outputs.append(torch.stack(result))
+                    else:
+                        outputs.append(torch.stack([torch.tensor(float(r), dtype=torch.float32) for r in result]))
+                else:
+                    if isinstance(result, torch.Tensor):
+                        outputs.append(result)
+                    else:
+                        outputs.append(torch.tensor(float(result), dtype=torch.float32))
+            if batch_size > 10:
+                print(f"Processed {batch_size}/{batch_size} samples.        ")
+            return torch.stack(outputs)
 
     def _quantum_circuit(self, x):
         if self.encoding == "amplitude":
@@ -110,7 +180,7 @@ class DVQuantumLayer(nn.Module):
             )
         else:
             qml.templates.AngleEmbedding(x, wires=range(self.num_qubits), rotation="X")
-        
+
         if self.q_ansatz == "layered":
             for layer in range(self.num_quantum_layers):
                 self.layered(self.params[layer])
@@ -129,13 +199,15 @@ class DVQuantumLayer(nn.Module):
         elif self.q_ansatz == "cross_mesh":
             for layer in range(self.num_quantum_layers):
                 self.create_cross_mesh(self.params[layer])
-        
-        # Apply Haar random unitaries after the main ansatz
-        if self.haar_unitary1 is not None and self.haar_unitary2 is not None:
-             qml.QubitUnitary(self.haar_unitary1, wires=[0, 1])
-             qml.QubitUnitary(self.haar_unitary2, wires=[2, 3])
-        
-        # Add a Hadamard gate to the last qubit before measurement
+
+        if self.haar_seed1 is not None and self.haar_seed2 is not None:
+            random_state1 = np.random.RandomState(self.haar_seed1)
+            random_state2 = np.random.RandomState(self.haar_seed2)
+            u1_unitary = unitary_group.rvs(4, random_state=random_state1)
+            u2_unitary = unitary_group.rvs(4, random_state=random_state2)
+            qml.QubitUnitary(u1_unitary, wires=[0, 1])
+            qml.QubitUnitary(u2_unitary, wires=[2, 3])
+
         if self.num_qubits > 0:
             qml.Hadamard(wires=self.num_qubits - 1)
 
