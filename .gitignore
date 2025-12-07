@@ -2,14 +2,12 @@
 **/checkpoints
 **/logs
 **/results
-**/data
 **/models
 **/notebooks
 **/tests
 **/docs
 **/examples
 **/tutorials
-**/utils
 __pycache__
 *.pyc
 *.pyo
