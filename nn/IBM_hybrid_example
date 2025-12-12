@@ -1,0 +1,114 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+from qiskit import QuantumCircuit
+from qiskit.primitives import Estimator
+from qiskit_machine_learning.connectors import TorchConnector
+from qiskit_machine_learning.neural_networks import EstimatorQNN
+
+# ----------------------------
+# 1. Create a parameterized quantum circuit
+# ----------------------------
+from qiskit.circuit import ParameterVector
+
+num_qubits = 2
+qc = QuantumCircuit(num_qubits)
+
+# Data encoding parameters (for inputs)
+x = ParameterVector("x", length=num_qubits)
+# Trainable weights
+theta = ParameterVector("θ", length=2 * num_qubits)
+
+# Simple feature map: RY rotations with data
+for i in range(num_qubits):
+    qc.ry(x[i], i)
+
+# Variational layer: RZ + RX with trainable params
+k = 0
+for i in range(num_qubits):
+    qc.rz(theta[k], i)
+    k += 1
+for i in range(num_qubits):
+    qc.rx(theta[k], i)
+    k += 1
+
+qc.measure_all = False  # just a reminder: we use expectation values via Estimator
+
+# ----------------------------
+# 2. Build a QNN object (EstimatorQNN)
+# ----------------------------
+# We'll measure Z⊗I and I⊗Z (two outputs) for demonstration.
+from qiskit.quantum_info import SparsePauliOp
+observables = [
+    SparsePauliOp.from_list([("Z" + "I" * (num_qubits - 1), 1.0)]),
+    SparsePauliOp.from_list([("I" * (num_qubits - 1) + "Z", 1.0)]),
+]
+
+estimator = Estimator()  # local estimator (can be swapped to runtime later)
+
+qnn = EstimatorQNN(
+    estimator=estimator,
+    circuit=qc,
+    observables=observables,
+    input_params=list(x),
+    weight_params=list(theta),
+)
+
+# Wrap QNN as a PyTorch module
+quantum_layer = TorchConnector(qnn)  # behaves like nn.Module
+
+# ----------------------------
+# 3. Define full hybrid PyTorch model
+# ----------------------------
+class HybridModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # Classical front
+        self.fc1 = nn.Linear(2, num_qubits)  # map input → 2 features (for 2 qubits)
+        self.act1 = nn.Tanh()
+        # Quantum middle
+        self.q_layer = quantum_layer
+        # Classical head
+        self.fc2 = nn.Linear(len(observables), 1)  # from 2 quantum outputs → 1 logit
+
+    def forward(self, x):
+        # x: [batch_size, 2]
+        z = self.fc1(x)
+        z = self.act1(z)
+        # Quantum layer expects shape [batch_size, num_qubits]
+        q_out = self.q_layer(z)  # [batch_size, len(observables)]
+        out = self.fc2(q_out)
+        return out.squeeze(-1)
+
+model = HybridModel()
+
+# ----------------------------
+# 4. Dummy dataset (binary classification)
+# ----------------------------
+# Example: classify points inside / outside unit circle
+def generate_data(n_samples=200):
+    X = torch.rand(n_samples, 2) * 2 - 1  # in [-1, 1]^2
+    r = torch.linalg.norm(X, dim=1)
+    y = (r < 0.7).float()  # inside circle -> class 1
+    return X, y
+
+X_train, y_train = generate_data(400)
+
+# ----------------------------
+# 5. Training loop (on simulator)
+# ----------------------------
+criterion = nn.BCEWithLogitsLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.02)
+
+model.train()
+for epoch in range(10):
+    optimizer.zero_grad()
+    logits = model(X_train)
+    loss = criterion(logits, y_train)
+    loss.backward()
+    optimizer.step()
+    with torch.no_grad():
+        preds = (torch.sigmoid(logits) > 0.5).float()
+        acc = (preds == y_train).float().mean().item()
+    print(f"Epoch {epoch:02d} | Loss: {loss.item():.4f} | Acc: {acc:.3f}")
