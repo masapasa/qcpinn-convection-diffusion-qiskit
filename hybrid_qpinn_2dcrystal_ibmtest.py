@@ -12,8 +12,6 @@ Features:
 - Quantum layer executed via IBM Qiskit Runtime Estimator
 - SPSA optimizer for hardware efficiency
 - Designed for 4-qubit IBM backend
-
-Author: ChatGPT
 """
 
 # =====================================================
