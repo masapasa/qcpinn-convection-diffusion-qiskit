@@ -187,3 +187,13 @@ After training, the model outputs:
 
 MIT License
 
+Python script for training a Hybrid Quantum PINN to solve the 2D Diffusion equation.
+
+This script consolidates the logic from the provided files into a single execution flow. It includes the PDE definition, the Hybrid (Classical-Quantum-Classical) architecture, data sampling, and a robust training loop with validation.
+
+### Features:
+1.  **Hybrid Architecture**: Uses a PyTorch `Linear -> Quantum (PennyLane) -> Linear` flow.
+2.  **Robust PDE Solver**: Solves the 2D Convection-Diffusion equation.
+3.  **Configurable Backend**: Defaults to a fast local simulator (`default.qubit`) for training but is structured to easily switch to IBM hardware.
+4.  **Physics-Informed Loss**: Calculates gradients ($u_t, u_x, u_{xx}$, etc.) using automatic differentiation.
+5.  **Self-Contained**: No external local imports required.

@@ -89,8 +89,11 @@ class ContourPlotter:
                     row_errors.append(d_slice)
                 else:
                     row_solutions.append(d_slice)
-            solution_min = min(np.min(d) for d in row_solutions)
-            solution_max = max(np.max(d) for d in row_solutions)
+            if row_solutions:
+                solution_min = min(np.min(d) for d in row_solutions)
+                solution_max = max(np.max(d) for d in row_solutions)
+            else:
+                solution_min, solution_max = 0.0, 1.0
             if row_errors:
                 error_min = 0.0  
                 error_max = max(np.max(d) for d in row_errors)
