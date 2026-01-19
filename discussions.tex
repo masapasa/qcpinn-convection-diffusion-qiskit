@@ -1,0 +1,124 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{booktabs}
+\usepackage{authblk}
+
+\geometry{margin=1in}
+
+\title{Accelerating CFD Simulations for Silicon Single Crystal Growth via Hybrid Quantum Physics-Informed Neural Networks (HQ-PINNs)}
+
+\author{Technical Report}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+The manufacturing of high-quality silicon single crystals, primarily via the Czochralski (CZ) method, requires precise control over fluid dynamics and heat transfer. Traditional Computational Fluid Dynamics (CFD) methods are computationally expensive for real-time optimization. This report details the implementation of Hybrid Quantum Physics-Informed Neural Networks (HQ-PINNs), which combine the expressive power of variational quantum circuits with the physical consistency of PINNs. HQ-PINNs demonstrate up to 21\% higher accuracy and significant parameter efficiency compared to classical counterparts, offering a transformative approach to semiconductor process modeling.
+\end{abstract}
+
+\section{Introduction}
+Silicon crystal growth is a complex multi-physical process involving melt convection, heat transport, and phase-change kinetics. Physics-Informed Neural Networks (PINNs) have emerged as a viable surrogate for traditional CFD, but classical architectures often struggle with high-dimensional non-linearities and large-scale optimization. 
+
+Hybrid Quantum PINNs (HQ-PINNs) integrate quantum layers into the neural network architecture. By leveraging quantum entanglement and high-dimensional Hilbert spaces, these models capture complex fluid patterns with fewer parameters, accelerating the prototyping and optimization of growth conditions for large-diameter semiconductor crystals \cite{ref_arxiv_23, ref_ssrn_crystal}.
+
+\section{Governing Equations for Silicon Growth}
+In a 2D CFD simulation of silicon melt, the HQ-PINN must satisfy the fundamental conservation laws. The governing PDEs for the incompressible melt flow and temperature distribution are:
+
+\subsection{Mass and Momentum Conservation}
+The Navier-Stokes equations for the melt velocity field $\mathbf{u}$ and pressure $p$ are:
+\begin{equation}
+    \nabla \cdot \mathbf{u} = 0
+\end{equation}
+\begin{equation}
+    \rho \left( \frac{\partial \mathbf{u}}{\partial t} + \mathbf{u} \cdot \nabla \mathbf{u} \right) = -\nabla p + \mu \nabla^2 \mathbf{u} + \mathbf{f}_b
+\end{equation}
+where $\rho$ is the density, $\mu$ is the dynamic viscosity, and $\mathbf{f}_b$ represents buoyancy forces (typically modeled via the Boussinesq approximation).
+
+\subsection{Energy Transport and Phase Change}
+Heat transfer in the melt and the solid crystal is governed by:
+\begin{equation}
+    \frac{\partial T}{\partial t} + \mathbf{u} \cdot \nabla T = \alpha \nabla^2 T
+\end{equation}
+At the crystal-melt interface, the Stefan condition must be enforced to account for latent heat release:
+\begin{equation}
+    L \rho_s v_n = [k_s \nabla T_s - k_l \nabla T_l] \cdot \mathbf{n}
+\end{equation}
+where $L$ is the latent heat of fusion, $v_n$ is the growth velocity, and $k$ is the thermal conductivity of the solid ($s$) and liquid ($l$) phases.
+
+\section{HQ-PINN Architecture}
+The hybrid architecture consists of three functional stages designed to process spatial coordinates $(x, y, t)$ and output physical variables $(\mathbf{u}, p, T)$.
+
+\subsection{Classical Preprocessing}
+A classical feedforward network (typically 2 layers with 50 neurons each using $Tanh$ activation) transforms raw coordinates into a feature vector $\xi$. This prepares the data for the limited dimensionality of current quantum hardware.
+
+\subsection{Quantum Variational Layer}
+The feature vector is encoded into a quantum state $|\psi\rangle$. For 2D crystal growth, the \textbf{Cascade Topology} is often preferred for its balance of expressivity and entanglement:
+\begin{itemize}
+    \item \textbf{Encoding:} Angle embedding using $R_x$ or $R_y$ gates.
+    \item \textbf{Variational Ansatz:} Trainable rotation gates ($R_z(\theta)$) and entangling CNOT gates in a ring-like configuration.
+    \item \textbf{Measurement:} Expectation values of Pauli operators $\langle Z_i \rangle$ are extracted as enhanced features.
+\end{itemize}
+
+\subsection{Hybrid Loss Function}
+The model is trained by minimizing a composite loss function $\mathcal{L}_{total}$:
+\begin{equation}
+    \mathcal{L}_{total} = w_{pde} \mathcal{L}_{PDE} + w_{bc} \mathcal{L}_{BC} + w_{data} \mathcal{L}_{data}
+\end{equation}
+The physics-based loss $\mathcal{L}_{PDE}$ is computed using automatic differentiation (AD) to evaluate the residuals of the Navier-Stokes and Energy equations at collocation points throughout the 2D domain.
+
+\section{Implementation Workflow}
+The deployment for Silicon CFD follows these technical steps:
+\begin{enumerate}
+    \item \textbf{Domain Discretization:} Selection of collocation points in the crucible geometry, focusing on the boundary layer near the crystal interface.
+    \item \textbf{Hybrid Framework:} Integration of \textit{PyTorch/TensorFlow} with \textit{PennyLane} or \textit{Qiskit} for gradient-based optimization.
+    \item \textbf{Optimization:} Use of the Adam optimizer; quantum gradients are calculated via the \textbf{parameter-shift rule}.
+    \item \textbf{Symmetry Enforcement:} For silicon ingots, rotational or hexagonal symmetry constraints can be appended to the loss function to ensure physical validity.
+\end{enumerate}
+
+\section{Advantages and Performance}
+HQ-PINNs offer specific benefits for the semiconductor industry:
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Feature} & \textbf{Classical PINN} & \textbf{HQ-PINN} \\ \midrule
+Accuracy & Baseline & Up to 21\% improvement \cite{ref_arxiv_23} \\
+Parameter Count & High & Low (due to quantum expressivity) \\
+Non-linearity & Sigmoidal/ReLU & Quantum Hilbert Space Mapping \\
+Complex Geometries & Moderate scaling & Superior boundary handling \cite{ref_terra} \\ \bottomrule
+\end{tabular}
+\caption{Comparison of Classical and Hybrid Quantum PINNs in CFD contexts.}
+\end{table}
+
+\section{Conclusion}
+Hybrid Quantum Physics-Informed Neural Networks represent a critical advancement in accelerating CFD for silicon single crystal growth. By embedding the governing laws of fluid dynamics directly into a hybrid quantum-classical learner, manufacturers can achieve high-fidelity simulations with reduced computational overhead, directly supporting the production of larger, defect-free silicon wafers.
+
+\begin{thebibliography}{99}
+
+\bibitem{ref_arxiv_23} 
+M. S. Sanvicente et al., ``Quantum Physics-Informed Neural Networks for Simulating Computational Fluid Dynamics in Complex Shapes,'' \textit{arXiv:2304.11247}, 2023.
+
+\bibitem{ref_ssrn_crystal} 
+``Accelerating Silicon Crystal Growth Simulations using AI-driven CFD,'' \textit{SSRN ID 4633342}, 2024.
+
+\bibitem{ref_arxiv_25}
+``Hybrid Quantum-Classical Models for Material Science,'' \textit{arXiv:2503.16678}, 2025.
+
+\bibitem{ref_terra}
+Terra Quantum, ``Simulation of Fluid Dynamics using Quantum PINNs,'' \textit{White Paper}, 2023.
+
+\bibitem{ref_physics_fluids}
+``Physics-informed quantum neural network for fluid flow simulations,'' \textit{Physics of Fluids}, 36(9), 2024.
+
+\end{thebibliography}
+
+\end{document}
