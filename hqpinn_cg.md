@@ -1,3 +1,4 @@
+### Detailed aspects of HQ PINNs for Crystal Growth Simulations
 Hybrid quantum physics-informed neural networks (PI Neural Networks) are emerging as a powerful tool to enhance computational fluid dynamics (CFD) simulations for crystal growth, delivering higher accuracy and efficiency over traditional classical neural networks.[1][4][5][7]
 
 ### Hybrid Quantum PI Neural Networks Overview
