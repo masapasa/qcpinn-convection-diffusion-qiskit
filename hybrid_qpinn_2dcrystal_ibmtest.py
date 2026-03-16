@@ -31,12 +31,16 @@ from qiskit_ibm_runtime import (
     Session
 )
 
+QiskitRuntimeService.save_account(
+    token="YOUR_44_CHAR_API_TOKEN_HERE",
+    instance="YOUR_INSTANCE_CRN"  # Optional; copy from dashboard Instances page
+)
+
 # =====================================================
 # 2. GLOBAL CONFIGURATION
 # =====================================================
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 # Quantum
 N_QUBITS = 4
 N_Q_LAYERS = 3

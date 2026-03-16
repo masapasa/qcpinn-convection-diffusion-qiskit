@@ -19,7 +19,6 @@ Usage:
     # IBM Quantum Hardware
     python train_hybrid_qpinn.py --use-ibm --ibm-token YOUR_TOKEN --ibm-backend ibm_torino --epochs 100
 
-Author: Generated with Claude Code
 """
 
 import argparse
