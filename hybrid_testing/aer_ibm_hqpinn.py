@@ -10,11 +10,10 @@ from qiskit_machine_learning.connectors import TorchConnector
 from qiskit_machine_learning.neural_networks import EstimatorQNN
 
 # Local Simulation
-from qiskit_aer import AerSimulator
-from qiskit.primitives import Estimator as LocalEstimator
+from qiskit.primitives import StatevectorEstimator as LocalEstimator
 
 # IBM Hardware
-from qiskit_ibm_runtime import QiskitRuntimeService, Session, Estimator as IBMEstimator, Options
+from qiskit_ibm_runtime import QiskitRuntimeService, Session, EstimatorV2 as IBMEstimator
 
 # =========================================================
 # 1. Configuration & Physics Constants
@@ -98,9 +97,7 @@ class QPINN(nn.Module):
 def run_local_pretraining(cfg: Config, x_data, y_data):
     print("--- STARTING LOCAL PRE-TRAINING (AER SIMULATOR) ---")
     
-    # Use Local Aer Estimator
-    # If you have a GPU, use: device="GPU" in AerSimulator
-    aer_estimator = LocalEstimator() 
+    aer_estimator = LocalEstimator()
     qnn = create_qnn(cfg, aer_estimator)
     model = QPINN(cfg, TorchConnector(qnn))
     
@@ -137,15 +134,13 @@ def run_ibm_finetuning(cfg: Config, x_data, y_data):
     
     service = QiskitRuntimeService(channel="ibm_quantum", token=cfg.ibm_token)
     backend = service.backend(cfg.ibm_backend)
-    
-    options = Options()
-    options.resilience_level = 1  # Measurement error mitigation
-    options.optimization_level = 3
-    options.execution.shots = 1024
 
     # The Session context keeps your 150-minute window active and avoids requeuing
     with Session(service=service, backend=backend) as session:
-        ibm_estimator = IBMEstimator(session=session, options=options)
+        ibm_estimator = IBMEstimator(mode=session)
+        ibm_estimator.options.default_shots = 1024
+        ibm_estimator.options.optimization_level = 3
+        ibm_estimator.options.resilience_level = 1
         
         # Reconstruct model with the IBM Estimator
         qnn_ibm = create_qnn(cfg, ibm_estimator)
@@ -181,8 +176,12 @@ if __name__ == "__main__":
     cfg = Config()
     
     # Generate dummy data for demonstration
-    x_train = torch.rand((100, 2))
-    y_train = torch.rand((100, 5))
+    # x_train = torch.rand((100, 2))
+    # y_train = torch.rand((100, 5))
+    data_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "cz_melt_raw.txt")
+    raw = np.loadtxt(data_path, comments="%")
+    x_train = torch.tensor(raw[:, 0:2], dtype=torch.float32)
+    y_train = torch.tensor(raw[:, 4:9], dtype=torch.float32)
 
     # STEP 1: Run locally (Cost: $0, Time: Minutes)
     run_local_pretraining(cfg, x_train, y_train)
