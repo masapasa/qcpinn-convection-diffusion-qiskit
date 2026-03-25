@@ -193,7 +193,6 @@ class HybridCrystalPINN(nn.Module):
 # =====================================================
 # 7. PHASE-FIELD PHYSICS
 # =====================================================
-
 def anisotropic_epsilon(phi_x, phi_y):
     theta = torch.atan2(phi_y, phi_x + 1e-8)
     return EPS0 * (1.0 + DELTA_ANISO * torch.cos(ANISO_M * theta))
