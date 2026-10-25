@@ -7,7 +7,7 @@ The model leverages **16 qubits** via PennyLane and IBM Qiskit Runtime to solve 
 ---
 
 ## 1. Scientific Context: The Czochralski Melt
-The Czochralski process is the primary method for growing high-quality single-crystal silicon. The physics involve a rotating crucible and a rotating crystal, creating a complex interaction of:
+The Czochralski process is the primary method for growing high-quality single-crystal silicon. The physics involve a rotating crucible and a rotating crystalll, creating a complex interaction of:
 - **Forced Convection** (due to rotation)
 - **Natural Convection** (due to temperature gradients)
 - **Centrifugal/Coriolis Forces** (due to the cylindrical reference frame)
